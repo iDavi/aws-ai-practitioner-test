@@ -1,33 +1,30 @@
 /* ============================================================
- * Simulado AWS Certified AI Practitioner (AIF-C01)
- * SPA sem dependências. Modos: estudo (SRS), prática por
- * domínio e exame simulado completo (65 questões / 90 min).
+ * Simulado de certificações — SPA sem dependências.
+ * Certificações disponíveis: AWS AI Practitioner (AIF-C01) e
+ * HashiCorp Terraform Associate (004), cada uma com seu próprio
+ * idioma de UI, banco de questões e modelo de pontuação.
+ * Modos: estudo (SRS), prática por domínio e exame simulado.
  * ============================================================ */
 (function () {
   "use strict";
 
-  const BANK = [].concat(
-    window.DOMAIN1, window.DOMAIN2, window.DOMAIN3, window.DOMAIN4, window.DOMAIN5
-  );
-  const BY_ID = {};
-  BANK.forEach((q) => (BY_ID[q.id] = q));
-
-  const DOMAINS = {
-    1: { name: "Fundamentos de IA e ML", weight: 0.20, examCount: 13 },
-    2: { name: "Fundamentos de IA Generativa", weight: 0.24, examCount: 16 },
-    3: { name: "Aplicações de Modelos de Fundação", weight: 0.28, examCount: 18 },
-    4: { name: "Diretrizes para IA Responsável", weight: 0.14, examCount: 9 },
-    5: { name: "Segurança, Conformidade e Governança", weight: 0.14, examCount: 9 }
-  };
-
-  const EXAM_MINUTES = 90;
-  const PASS_SCALED = 700;
-
+  const CERT_STORAGE_KEY = "app-current-cert-v1";
   const app = document.getElementById("app");
-  let state = SRS.load();
+
+  let currentCertId = localStorage.getItem(CERT_STORAGE_KEY);
+  if (!window.CERTS[currentCertId]) currentCertId = "aif";
+
+  function cert() {
+    return window.CERTS[currentCertId];
+  }
+  function t(key, vars) {
+    return window.I18N.t(cert(), key, vars);
+  }
+
+  let state = SRS.load(cert().srsKey);
 
   /* ---------- estado volátil da sessão ---------- */
-  let study = null; // { queue, idx, order, selection:Set, checked, mode, domain, done, correctCount }
+  let study = null; // { queue, idx, order, selection:Set, checked, domain, done, correctCount }
   let exam = null;  // { questions, idx, answers, orders, flags, endsAt, timerId, review, finished }
 
   /* ================= util ================= */
@@ -45,10 +42,6 @@
     return true;
   }
 
-  function scaled(fraction) {
-    return Math.round(100 + fraction * 900);
-  }
-
   function fmtClock(ms) {
     const s = Math.max(0, Math.floor(ms / 1000));
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -59,117 +52,166 @@
     if (exam && exam.timerId) { clearInterval(exam.timerId); exam.timerId = null; }
   }
 
+  function directiveText(q) {
+    if (q.type !== "multiple") return t("directiveSingle");
+    return q.correct.length === 2 ? t("directiveMulti2") : t("directiveMulti3");
+  }
+
+  /* Modelo de pontuação genérico: AWS usa escala 100–1000 com nota
+     de corte; Terraform (e certificações HashiCorp em geral) usam
+     percentual, sem nota de corte oficial publicada. */
+  function computeScore(correct, total) {
+    const c = cert();
+    if (c.scoring === "scaled") {
+      const score = Math.round(100 + (correct / total) * 900);
+      const cutPct = ((c.passScaled - 100) / 900) * 100;
+      const pct = ((score - 100) / 900) * 100;
+      return {
+        score, pass: score >= c.passScaled, pct, cutPct,
+        minLabel: "100", maxLabel: "1000", cutLabel: String(c.passScaled),
+        noteKey: "scoreNoteScaled", cutForNote: c.passScaled
+      };
+    }
+    const pct = Math.round((100 * correct) / total);
+    return {
+      score: pct, pass: pct >= c.passPercent, pct, cutPct: c.passPercent,
+      minLabel: "0%", maxLabel: "100%", cutLabel: c.passPercent + "%",
+      noteKey: "scoreNotePercent", cutForNote: c.passPercent
+    };
+  }
+
   /* ================= chrome comum ================= */
   function topbar(rightHtml, subtitle) {
     return `
       <div class="exam-topbar">
-        <div class="exam-title"><span class="smile">AWS</span> Certified AI Practitioner (AIF-C01)${subtitle ? " — " + subtitle : ""}</div>
+        <div class="exam-title">${cert().titleHtml}${subtitle ? " — " + subtitle : ""}</div>
         <div class="exam-meta">${rightHtml || ""}</div>
       </div>`;
+  }
+
+  function certSwitcher() {
+    return `<div class="cert-switcher">
+      ${Object.values(window.CERTS).map((c) => `
+        <button class="cert-tab ${c.id === currentCertId ? "active" : ""}" data-action="switch-cert" data-cert="${c.id}">${esc(c.shortName)}</button>
+      `).join("")}
+    </div>`;
+  }
+
+  function switchCert(id) {
+    if (!window.CERTS[id] || id === currentCertId) return;
+    currentCertId = id;
+    localStorage.setItem(CERT_STORAGE_KEY, id);
+    state = SRS.load(cert().srsKey);
+    renderHome();
   }
 
   /* ================= HOME ================= */
   function renderHome() {
     stopTimer();
     study = null; exam = null;
-    const st = SRS.stats(state, BANK);
+    const c = cert();
+    const bank = c.bank;
+    const st = SRS.stats(state, bank);
     const history = state.examHistory.slice().reverse().slice(0, 8);
 
-    const domRows = Object.keys(DOMAINS).map((d) => {
-      const qs = BANK.filter((q) => q.domain === +d);
+    const domRows = Object.keys(c.domains).map((d) => {
+      const qs = bank.filter((q) => q.domain === +d);
       let seen = 0, correct = 0, answered = 0, due = 0;
       const now = Date.now();
       qs.forEach((q) => {
-        const c = state.cards[q.id];
-        if (c && c.seen > 0) {
+        const cd = state.cards[q.id];
+        if (cd && cd.seen > 0) {
           seen++;
-          answered += c.correct + c.wrong;
-          correct += c.correct;
-          if (c.due <= now) due++;
+          answered += cd.correct + cd.wrong;
+          correct += cd.correct;
+          if (cd.due <= now) due++;
         }
       });
       const acc = answered ? Math.round((100 * correct) / answered) : null;
       const cover = Math.round((100 * seen) / qs.length);
+      const pct = Math.round((100 * c.domains[d].examCount) / c.examQuestions);
+      const meta = c.officialWeights
+        ? t("domainMetaOfficial", { pct, bankCount: qs.length, due })
+        : t("domainMetaEstimated", { pct, examCount: c.domains[d].examCount, examQuestions: c.examQuestions, bankCount: qs.length, due });
       return `<tr>
-        <td><strong>Domínio ${d}</strong> — ${DOMAINS[d].name}<br><span style="color:var(--text-2);font-size:12px">${Math.round(DOMAINS[d].weight * 100)}% do exame · ${qs.length} questões no banco · ${due} a revisar</span></td>
-        <td style="width:180px"><div class="bar-wrap"><div class="bar" style="width:${cover}%"></div></div><span style="font-size:12px;color:var(--text-2)">${cover}% visto</span></td>
-        <td style="width:110px">${acc == null ? "—" : `<strong style="color:${acc >= 70 ? "var(--ok)" : "var(--err)"}">${acc}%</strong> acerto`}</td>
-        <td style="width:100px"><button class="link-btn" data-action="practice-domain" data-domain="${d}">Praticar</button></td>
+        <td><strong>${t("tagDomain", { d })}</strong> — ${esc(c.domains[d].name)}<br><span style="color:var(--text-2);font-size:12px">${meta}</span></td>
+        <td style="width:180px"><div class="bar-wrap"><div class="bar" style="width:${cover}%"></div></div><span style="font-size:12px;color:var(--text-2)">${t("coveragePctSeen", { pct: cover })}</span></td>
+        <td style="width:110px">${acc == null ? t("accuracyNone") : `<strong style="color:${acc >= 70 ? "var(--ok)" : "var(--err)"}">${acc}%</strong> ${cert().lang === "pt" ? "acerto" : "correct"}`}</td>
+        <td style="width:100px"><button class="link-btn" data-action="practice-domain" data-domain="${d}">${t("practiceBtn")}</button></td>
       </tr>`;
     }).join("");
 
     const histRows = history.length
       ? history.map((h) => `<tr>
-          <td>${new Date(h.date).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</td>
-          <td><strong>${h.scaled}</strong>/1000</td>
-          <td class="${h.pass ? "pill-pass" : "pill-fail"}">${h.pass ? "APROVADO" : "REPROVADO"}</td>
+          <td>${new Date(h.date).toLocaleString(c.lang === "pt" ? "pt-BR" : "en-US", { dateStyle: "short", timeStyle: "short" })}</td>
+          <td><strong>${h.score}${c.scoring === "percent" ? "%" : ""}</strong>${c.scoring === "scaled" ? "/1000" : ""}</td>
+          <td class="${h.pass ? "pill-pass" : "pill-fail"}">${h.pass ? t("verdictPass") : t("verdictFail")}</td>
           <td>${h.correct}/${h.total}</td>
         </tr>`).join("")
-      : `<tr><td colspan="4" style="color:var(--text-2)">Nenhum simulado concluído ainda.</td></tr>`;
+      : `<tr><td colspan="4" style="color:var(--text-2)">${t("historyEmpty")}</td></tr>`;
 
     app.innerHTML = `
       <div class="home-header"><div class="inner">
-        <h1><span class="smile">AWS</span> Certified AI Practitioner (AIF-C01) — Simulado<span class="badge-beta">com repetição espaçada</span></h1>
-        <p>Banco de ${BANK.length} questões no estilo do exame oficial, cobrindo os 5 domínios do guia AIF-C01.
-        Estude com repetição espaçada para fixar o conteúdo e faça simulados completos de 65 questões em 90 minutos,
-        na interface da plataforma de aplicação de exames.</p>
+        ${certSwitcher()}
+        <h1>${c.titleHtml}<span class="badge-beta">${esc(c.badgeText)}</span></h1>
+        <p>${c.heroText.replace("{n}", bank.length).replace("{examQuestions}", c.examQuestions).replace("{examMinutes}", c.examMinutes)}</p>
       </div></div>
       <div class="home-main">
         <div class="stat-row">
-          <div class="stat-card due"><div class="num">${st.due}</div><div class="lbl">Revisões vencidas hoje</div></div>
-          <div class="stat-card new"><div class="num">${st.neu}</div><div class="lbl">Questões novas</div></div>
-          <div class="stat-card learn"><div class="num">${st.learning + st.young}</div><div class="lbl">Em aprendizado</div></div>
-          <div class="stat-card master"><div class="num">${st.mature}</div><div class="lbl">Dominadas (intervalo ≥ 21 d)</div></div>
+          <div class="stat-card due"><div class="num">${st.due}</div><div class="lbl">${t("statDue")}</div></div>
+          <div class="stat-card new"><div class="num">${st.neu}</div><div class="lbl">${t("statNew")}</div></div>
+          <div class="stat-card learn"><div class="num">${st.learning + st.young}</div><div class="lbl">${t("statLearning")}</div></div>
+          <div class="stat-card master"><div class="num">${st.mature}</div><div class="lbl">${t("statMastered")}</div></div>
         </div>
 
         <div class="mode-grid">
           <div class="mode-card">
-            <h3>📚 Sessão de estudo</h3>
-            <p>Fila inteligente de repetição espaçada: revisa primeiro o que está vencido e introduz questões novas aos poucos. Feedback imediato com explicação detalhada de cada alternativa.</p>
-            <div class="meta">${st.due} vencidas · até ${state.settings.newPerSession} novas por sessão</div>
-            <button class="btn btn-primary btn-lg" data-action="start-study">Iniciar sessão</button>
+            <h3>${t("modeStudyTitle")}</h3>
+            <p>${t("modeStudyDesc")}</p>
+            <div class="meta">${t("modeStudyMeta", { due: st.due, n: state.settings.newPerSession })}</div>
+            <button class="btn btn-primary btn-lg" data-action="start-study">${t("modeStudyBtn")}</button>
           </div>
           <div class="mode-card">
-            <h3>🖥️ Exame simulado completo</h3>
-            <p>65 questões sorteadas com os pesos oficiais por domínio, 90 minutos no relógio, marcação para revisão e relatório de pontuação em escala de 100–1000 (aprovação: 700).</p>
-            <div class="meta">Sem feedback durante a prova — igual ao exame real</div>
-            <button class="btn btn-blue btn-lg" data-action="start-exam">Iniciar exame</button>
+            <h3>${t("modeExamTitle")}</h3>
+            <p>${t("modeExamDesc", { n: c.examQuestions, min: c.examMinutes })}</p>
+            <div class="meta">${t("modeExamMeta")}</div>
+            <button class="btn btn-blue btn-lg" data-action="start-exam">${t("modeExamBtn")}</button>
           </div>
           <div class="mode-card">
-            <h3>⚙️ Configurações</h3>
-            <p>Ajuste o ritmo da repetição espaçada.</p>
-            <div class="settings-row"><label>Novas por sessão:</label><input type="number" min="0" max="100" id="set-new" value="${state.settings.newPerSession}"></div>
-            <div class="settings-row"><label>Tamanho da sessão:</label><input type="number" min="5" max="200" id="set-size" value="${state.settings.sessionSize}"></div>
+            <h3>${t("modeSettingsTitle")}</h3>
+            <p>${t("modeSettingsDesc")}</p>
+            <div class="settings-row"><label>${t("settingsNewLabel")}</label><input type="number" min="0" max="100" id="set-new" value="${state.settings.newPerSession}"></div>
+            <div class="settings-row"><label>${t("settingsSizeLabel")}</label><input type="number" min="5" max="200" id="set-size" value="${state.settings.sessionSize}"></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-              <button class="btn btn-light" data-action="save-settings">Salvar</button>
-              <button class="btn btn-light" data-action="reset-progress" style="color:var(--err)">Zerar progresso</button>
+              <button class="btn btn-light" data-action="save-settings">${t("settingsSave")}</button>
+              <button class="btn btn-light" data-action="reset-progress" style="color:var(--err)">${t("settingsReset")}</button>
             </div>
           </div>
         </div>
 
-        <div class="section-title">Desempenho por domínio</div>
-        <table class="domain-table"><thead><tr><th>Domínio</th><th>Cobertura</th><th>Precisão</th><th></th></tr></thead><tbody>${domRows}</tbody></table>
+        <div class="section-title">${t("sectionDomainPerf")}</div>
+        <table class="domain-table"><thead><tr><th>${t("thDomain")}</th><th>${t("thCoverage")}</th><th>${t("thAccuracy")}</th><th></th></tr></thead><tbody>${domRows}</tbody></table>
 
-        <div class="section-title">Histórico de simulados</div>
-        <table class="domain-table exam-history-table"><thead><tr><th>Data</th><th>Pontuação</th><th>Resultado</th><th>Acertos</th></tr></thead><tbody>${histRows}</tbody></table>
+        <div class="section-title">${t("sectionExamHistory")}</div>
+        <table class="domain-table exam-history-table"><thead><tr><th>${t("thDate")}</th><th>${t("thScore")}</th><th>${t("thResult")}</th><th>${t("thCorrect")}</th></tr></thead><tbody>${histRows}</tbody></table>
       </div>`;
   }
 
   /* ================= MODO ESTUDO ================= */
   function startStudy(domain) {
-    const queue = SRS.buildQueue(state, BANK, domain ? { domain, maxTotal: 20, maxNew: 10 } : {});
+    const bank = cert().bank;
+    const queue = SRS.buildQueue(state, bank, domain ? { domain, maxTotal: 20, maxNew: 10 } : {});
     if (!queue.length) {
-      // nada vencido/novo: reforça as mais fracas do escopo
-      const pool = domain ? BANK.filter((q) => q.domain === domain) : BANK;
+      const pool = domain ? bank.filter((q) => q.domain === domain) : bank;
       const weak = pool.slice().sort((a, b) => {
         const ca = state.cards[a.id], cb = state.cards[b.id];
         const ra = ca ? ca.correct / Math.max(1, ca.correct + ca.wrong) : 1;
         const rb = cb ? cb.correct / Math.max(1, cb.correct + cb.wrong) : 1;
         return ra - rb;
       }).slice(0, 15);
-      study = { queue: SRS.shuffle(weak), extraMode: true };
+      study = { queue: SRS.shuffle(weak) };
     } else {
-      study = { queue, extraMode: false };
+      study = { queue };
     }
     Object.assign(study, {
       idx: 0, selection: new Set(), checked: false,
@@ -185,8 +227,7 @@
     if (!s.order) s.order = optionOrder(q);
 
     const isMulti = q.type === "multiple";
-    const nCorrect = q.correct.length;
-    const chip = SRS.isNew(state, q.id) ? '<span class="chip c-new">NOVA</span>' : '<span class="chip c-due">REVISÃO</span>';
+    const chip = SRS.isNew(state, q.id) ? `<span class="chip c-new">${t("chipNew")}</span>` : `<span class="chip c-due">${t("chipDue")}</span>`;
 
     const optionsHtml = s.order.map((origIdx, pos) => {
       const sel = s.selection.has(origIdx);
@@ -195,8 +236,8 @@
       if (s.checked) {
         cls += " disabled";
         const isC = q.correct.includes(origIdx);
-        if (isC) { cls += " correct"; mark = '<span class="opt-mark">✔ correta</span>'; }
-        else if (sel) { cls += " incorrect"; mark = '<span class="opt-mark">✘</span>'; }
+        if (isC) { cls += " correct"; mark = `<span class="opt-mark">${t("correctMark")}</span>`; }
+        else if (sel) { cls += " incorrect"; mark = `<span class="opt-mark">✘</span>`; }
       }
       return `<li class="${cls}" data-opt="${origIdx}">
         <input type="${isMulti ? "checkbox" : "radio"}" name="opt" ${sel ? "checked" : ""} ${s.checked ? "disabled" : ""} tabindex="-1">
@@ -209,17 +250,17 @@
       const ok = setEq(s.selection, q.correct);
       const prev = SRS.previewIntervals(state, q.id);
       feedback = `
-        <div class="feedback-banner ${ok ? "ok" : "err"}">${ok ? "✔ Resposta correta" : "✘ Resposta incorreta"}</div>
-        <div class="explanation"><h4>Explicação</h4>${esc(q.explanation)}</div>
+        <div class="feedback-banner ${ok ? "ok" : "err"}">${ok ? t("feedbackCorrect") : t("feedbackIncorrect")}</div>
+        <div class="explanation"><h4>${t("explanationHeader")}</h4>${esc(q.explanation)}</div>
         <div class="srs-grade-bar">
-          <div class="hint">Como foi lembrar desta questão? Isso define quando ela voltará a aparecer.</div>
+          <div class="hint">${t("srsHint")}</div>
           ${ok ? `
-            <button class="grade-btn grade-again" data-grade="0">Errei<small>${prev.again}</small></button>
-            <button class="grade-btn grade-hard" data-grade="1">Difícil<small>${prev.hard}</small></button>
-            <button class="grade-btn grade-good" data-grade="2">Bom<small>${prev.good}</small></button>
-            <button class="grade-btn grade-easy" data-grade="3">Fácil<small>${prev.easy}</small></button>
+            <button class="grade-btn grade-again" data-grade="0">${t("gradeAgain")}<small>${prev.again}</small></button>
+            <button class="grade-btn grade-hard" data-grade="1">${t("gradeHard")}<small>${prev.hard}</small></button>
+            <button class="grade-btn grade-good" data-grade="2">${t("gradeGood")}<small>${prev.good}</small></button>
+            <button class="grade-btn grade-easy" data-grade="3">${t("gradeEasy")}<small>${prev.easy}</small></button>
           ` : `
-            <button class="grade-btn grade-again" data-grade="0">Continuar (rever em breve)<small>${prev.again}</small></button>
+            <button class="grade-btn grade-again" data-grade="0">${t("gradeContinue")}<small>${prev.again}</small></button>
           `}
         </div>`;
     }
@@ -228,23 +269,23 @@
       <div class="exam-shell">
         ${topbar(`<span class="study-progress">
             ${chip}
-            <span class="chip c-done">${s.done} feitas</span>
-            <span>Restam ${s.queue.length - s.idx}</span>
-          </span>`, s.domain ? "Prática: Domínio " + s.domain : "Sessão de estudo")}
+            <span class="chip c-done">${t("chipDone", { n: s.done })}</span>
+            <span>${t("remainingLabel", { n: s.queue.length - s.idx })}</span>
+          </span>`, s.domain ? t("practiceSubtitle", { d: s.domain }) : t("studySubtitle"))}
         <div class="exam-subbar">
-          <span class="qcount">Questão ${s.idx + 1} de ${s.queue.length}</span>
-          <span class="tag dom">Domínio ${q.domain} — ${DOMAINS[q.domain].name}</span>
+          <span class="qcount">${t("questionOf", { i: s.idx + 1, n: s.queue.length })}</span>
+          <span class="tag dom">${t("tagDomain", { d: q.domain })} — ${esc(cert().domains[q.domain].name)}</span>
         </div>
         <div class="exam-body">
           <div class="q-stem">${esc(q.stem)}</div>
-          <div class="q-directive">${isMulti ? `Selecione ${nCorrect === 2 ? "DUAS" : "TRÊS"} alternativas.` : "Selecione UMA alternativa."}</div>
+          <div class="q-directive">${directiveText(q)}</div>
           <ul class="q-options">${optionsHtml}</ul>
           ${feedback}
         </div>
         <div class="exam-footer">
-          <div class="group"><button class="btn btn-secondary" data-action="quit-study">Encerrar sessão</button></div>
+          <div class="group"><button class="btn btn-secondary" data-action="quit-study">${t("footerQuit")}</button></div>
           <div class="group">
-            ${s.checked ? "" : `<button class="btn btn-primary" data-action="check" ${s.selection.size ? "" : "disabled"}>Responder</button>`}
+            ${s.checked ? "" : `<button class="btn btn-primary" data-action="check" ${s.selection.size ? "" : "disabled"}>${t("footerCheck")}</button>`}
           </div>
         </div>
       </div>`;
@@ -253,18 +294,17 @@
   function renderStudyDone() {
     const s = study;
     const acc = s.done ? Math.round((100 * s.correctCount) / s.done) : 0;
-    const st = SRS.stats(state, BANK);
+    const st = SRS.stats(state, cert().bank);
     app.innerHTML = `
       <div class="exam-shell">
-        ${topbar("", "Sessão concluída")}
+        ${topbar("", "")}
         <div class="empty-note">
-          <div class="big">🎉</div>
-          <h2 style="margin:10px 0">Sessão concluída!</h2>
-          <p>Você respondeu <strong>${s.done}</strong> questões com <strong>${acc}%</strong> de acerto.<br>
-          Ainda restam <strong>${st.due}</strong> revisões vencidas e <strong>${st.neu}</strong> questões novas no banco.</p>
+          <div class="big">${t("emptyStudyDoneIcon")}</div>
+          <h2 style="margin:10px 0">${t("studyDoneTitle")}</h2>
+          <p>${t("studyDoneBody", { done: s.done, acc, due: st.due, neu: st.neu })}</p>
           <div style="margin-top:22px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-            ${st.due + st.neu > 0 ? `<button class="btn btn-primary btn-lg" data-action="start-study">Nova sessão</button>` : ""}
-            <button class="btn btn-light btn-lg" data-action="home">Voltar ao início</button>
+            ${st.due + st.neu > 0 ? `<button class="btn btn-primary btn-lg" data-action="start-study">${t("studyDoneNewSession")}</button>` : ""}
+            <button class="btn btn-light btn-lg" data-action="home">${t("studyDoneHome")}</button>
           </div>
         </div>
       </div>`;
@@ -285,7 +325,6 @@
     const ok = setEq(s.selection, q.correct);
     SRS.grade(state, q.id, ok ? g : 0, ok);
     if (!ok || g === 0) {
-      // errou: volta para o fim da fila da sessão (rever hoje mesmo)
       const pos = Math.min(s.queue.length, s.idx + 4);
       s.queue.splice(pos, 0, q);
     }
@@ -298,18 +337,19 @@
 
   /* ================= EXAME SIMULADO ================= */
   function startExam() {
+    const c = cert();
     const questions = [];
-    Object.keys(DOMAINS).forEach((d) => {
-      const pool = SRS.shuffle(BANK.filter((q) => q.domain === +d));
-      questions.push(...pool.slice(0, DOMAINS[d].examCount));
+    Object.keys(c.domains).forEach((d) => {
+      const pool = SRS.shuffle(c.bank.filter((q) => q.domain === +d));
+      questions.push(...pool.slice(0, c.domains[d].examCount));
     });
     exam = {
       questions: SRS.shuffle(questions),
       idx: 0,
-      answers: {},   // qIdx -> Set(origIdx)
-      orders: {},    // qIdx -> permutação das opções
+      answers: {},
+      orders: {},
       flags: new Set(),
-      endsAt: Date.now() + EXAM_MINUTES * 60 * 1000,
+      endsAt: Date.now() + c.examMinutes * 60 * 1000,
       timerId: null,
       review: false,
       finished: false
@@ -335,9 +375,9 @@
     return `
       <div class="exam-shell">
         <div class="exam-topbar">
-          <div class="exam-title"><span class="smile">AWS</span> Certified AI Practitioner (AIF-C01)</div>
+          <div class="exam-title">${cert().titleHtml}</div>
           <div class="exam-meta">
-            <span>Candidato(a): você</span>
+            <span>${t("candidateLabel")}</span>
             <span class="exam-timer${left < 5 * 60 * 1000 ? " critical" : left < 15 * 60 * 1000 ? " low" : ""}" id="exam-clock">${fmtClock(left)}</span>
           </div>
         </div>
@@ -365,22 +405,22 @@
 
     app.innerHTML = examChrome(
       `<div class="q-stem">${esc(q.stem)}</div>
-       <div class="q-directive">${isMulti ? `Selecione ${q.correct.length === 2 ? "DUAS" : "TRÊS"} alternativas.` : "Selecione UMA alternativa."}</div>
+       <div class="q-directive">${directiveText(q)}</div>
        <ul class="q-options">${optionsHtml}</ul>`,
       `<div class="exam-subbar">
-         <span class="qcount">Questão ${e.idx + 1} de ${e.questions.length}</span>
+         <span class="qcount">${t("questionOf", { i: e.idx + 1, n: e.questions.length })}</span>
          <label class="flag-toggle ${flagged ? "flagged" : ""}" data-action="toggle-flag">
-           <input type="checkbox" ${flagged ? "checked" : ""} tabindex="-1"><span class="flag-icon">⚑</span> Marcar para revisão
+           <input type="checkbox" ${flagged ? "checked" : ""} tabindex="-1"><span class="flag-icon">⚑</span> ${t("markForReview")}
          </label>
        </div>`,
       `<div class="group">
-         <button class="btn btn-secondary" data-action="exam-review">Revisar tudo</button>
+         <button class="btn btn-secondary" data-action="exam-review">${t("reviewAll")}</button>
        </div>
        <div class="group">
-         <button class="btn btn-secondary" data-action="exam-prev" ${e.idx === 0 ? "disabled" : ""}>‹ Anterior</button>
+         <button class="btn btn-secondary" data-action="exam-prev" ${e.idx === 0 ? "disabled" : ""}>${t("prevBtn")}</button>
          ${e.idx === e.questions.length - 1
-           ? `<button class="btn btn-primary" data-action="exam-review">Ir para revisão ›</button>`
-           : `<button class="btn btn-primary" data-action="exam-next">Próxima ›</button>`}
+           ? `<button class="btn btn-primary" data-action="exam-review">${t("goReviewBtn")}</button>`
+           : `<button class="btn btn-primary" data-action="exam-next">${t("nextBtn")}</button>`}
        </div>`
     );
   }
@@ -390,26 +430,25 @@
     const cells = e.questions.map((q, i) => {
       const answered = e.answers[i] && e.answers[i].size > 0;
       return `<div class="review-cell ${answered ? "" : "unanswered"} ${e.flags.has(i) ? "flagged" : ""}" data-goto="${i}">
-        <span class="n">${i + 1}</span><span class="s">${answered ? "Respondida" : "Sem resposta"}</span>
+        <span class="n">${i + 1}</span><span class="s">${answered ? t("answeredLabel") : t("unansweredLabel")}</span>
       </div>`;
     }).join("");
     const unanswered = e.questions.filter((_, i) => !(e.answers[i] && e.answers[i].size)).length;
 
     app.innerHTML = examChrome(
-      `<h2 style="font-size:19px">Revisão das questões</h2>
-       <p style="color:var(--text-2);margin-top:8px;font-size:13.5px">Clique em uma questão para voltar a ela. Questões marcadas com <span style="color:var(--err)">⚑</span> foram sinalizadas para revisão.
-       ${unanswered ? `<strong style="color:var(--warn)">Atenção: ${unanswered} questão(ões) sem resposta.</strong>` : "Todas as questões foram respondidas."}</p>
+      `<h2 style="font-size:19px">${t("reviewTitle")}</h2>
+       <p style="color:var(--text-2);margin-top:8px;font-size:13.5px">${unanswered ? t("reviewBodyUnanswered", { n: unanswered }) : t("reviewBodyClean")}</p>
        <div class="review-grid">${cells}</div>
        <div class="review-legend">
-         <span>⬜ Respondida</span><span style="color:var(--warn)">🟧 Sem resposta</span><span style="color:var(--err)">⚑ Marcada para revisão</span>
+         <span>${t("legendAnswered")}</span><span style="color:var(--warn)">${t("legendUnanswered")}</span><span style="color:var(--err)">${t("legendFlagged")}</span>
        </div>`,
-      `<div class="exam-subbar"><span class="qcount">Revisão — ${e.questions.length} questões</span></div>`,
+      `<div class="exam-subbar"><span class="qcount">${t("reviewSubtitle", { n: e.questions.length })}</span></div>`,
       `<div class="group">
-         <button class="btn btn-secondary" data-action="exam-back-first-flag" ${e.flags.size ? "" : "disabled"}>Revisar marcadas</button>
-         <button class="btn btn-secondary" data-action="exam-back-first-blank" ${unanswered ? "" : "disabled"}>Revisar sem resposta</button>
+         <button class="btn btn-secondary" data-action="exam-back-first-flag" ${e.flags.size ? "" : "disabled"}>${t("reviewMarked")}</button>
+         <button class="btn btn-secondary" data-action="exam-back-first-blank" ${unanswered ? "" : "disabled"}>${t("reviewBlank")}</button>
        </div>
        <div class="group">
-         <button class="btn btn-danger" data-action="exam-finish">Finalizar exame</button>
+         <button class="btn btn-danger" data-action="exam-finish">${t("finishExamBtn")}</button>
        </div>`
     );
   }
@@ -420,7 +459,7 @@
     wrap.innerHTML = `<div class="modal">
       <h3>${title}</h3><p>${body}</p>
       <div class="modal-actions">
-        <button class="btn btn-light" data-m="cancel">Cancelar</button>
+        <button class="btn btn-light" data-m="cancel">${t("modalCancel")}</button>
         <button class="btn btn-danger" data-m="ok">${confirmLabel}</button>
       </div></div>`;
     wrap.addEventListener("click", (ev) => {
@@ -438,9 +477,10 @@
     e.finished = true;
     stopTimer();
 
+    const c = cert();
     let correct = 0;
     const byDomain = {};
-    Object.keys(DOMAINS).forEach((d) => (byDomain[d] = { correct: 0, total: 0 }));
+    Object.keys(c.domains).forEach((d) => (byDomain[d] = { correct: 0, total: 0 }));
     const detail = e.questions.map((q, i) => {
       const sel = e.answers[i] || new Set();
       const ok = setEq(sel, q.correct);
@@ -451,29 +491,28 @@
     });
 
     const total = e.questions.length;
-    const score = scaled(correct / total);
-    const pass = score >= PASS_SCALED;
+    const scoreInfo = computeScore(correct, total);
 
     state.examHistory.push({
-      date: Date.now(), scaled: score, pass, correct, total,
+      date: Date.now(), score: scoreInfo.score, pass: scoreInfo.pass, correct, total,
       byDomain: JSON.parse(JSON.stringify(byDomain))
     });
     SRS.save(state);
 
-    renderResults({ score, pass, correct, total, byDomain, detail, byTimeout });
+    renderResults({ scoreInfo, correct, total, byDomain, detail, byTimeout });
   }
 
   function renderResults(r) {
-    const pct = ((r.score - 100) / 900) * 100;
-    const domRows = Object.keys(DOMAINS).map((d) => {
+    const c = cert();
+    const domRows = Object.keys(c.domains).map((d) => {
       const b = r.byDomain[d];
       const p = b.total ? Math.round((100 * b.correct) / b.total) : 0;
       const good = p >= 70;
       return `<tr>
-        <td><strong>Domínio ${d}</strong> — ${DOMAINS[d].name}</td>
+        <td><strong>${t("tagDomain", { d })}</strong> — ${esc(c.domains[d].name)}</td>
         <td style="width:200px"><div class="bar-wrap"><div class="bar ${good ? "good" : "bad"}" style="width:${p}%"></div></div></td>
         <td style="width:130px"><strong>${b.correct}/${b.total}</strong> (${p}%)</td>
-        <td style="width:190px;color:${good ? "var(--ok)" : "var(--err)"};font-weight:600">${good ? "Atende às competências" : "Precisa de reforço"}</td>
+        <td style="width:190px;color:${good ? "var(--ok)" : "var(--err)"};font-weight:600">${good ? t("domainMeets") : t("domainNeedsWork")}</td>
       </tr>`;
     }).join("");
 
@@ -486,43 +525,49 @@
         const isC = q.correct.includes(oi);
         const isS = selSet.has(oi);
         let cls = "q-option disabled" + (isC ? " correct" : isS ? " incorrect" : "");
-        let mark = isC ? '<span class="opt-mark">✔ correta</span>' : isS ? '<span class="opt-mark">✘ sua resposta</span>' : "";
+        let mark = isC ? `<span class="opt-mark">${t("correctMark")}</span>` : isS ? `<span class="opt-mark">${t("yourAnswerMark")}</span>` : "";
         return `<li class="${cls}"><span>${esc(o)}</span>${mark}</li>`;
       }).join("");
       return `<div class="q-review-item">
         <div style="margin-bottom:10px">
-          <span class="tag ${d.ok ? "ok" : "err"}">${d.ok ? "ACERTOU" : "ERROU"}</span>
-          <span class="tag dom">Domínio ${q.domain}</span>
-          <strong>Questão ${i + 1}</strong>
+          <span class="tag ${d.ok ? "ok" : "err"}">${d.ok ? t("tagCorrect") : t("tagIncorrect")}</span>
+          <span class="tag dom">${t("tagDomain", { d: q.domain })}</span>
+          <strong>${t("questionLabel", { i: i + 1 })}</strong>
         </div>
         <div class="q-stem" style="font-size:14.5px">${esc(q.stem)}</div>
         <ul class="q-options" style="margin-top:12px">${opts}</ul>
-        <div class="explanation"><h4>Explicação</h4>${esc(q.explanation)}</div>
+        <div class="explanation"><h4>${t("explanationHeader")}</h4>${esc(q.explanation)}</div>
       </div>`;
     }).join("");
 
+    const si = r.scoreInfo;
+    const noteVars = { correct: r.correct, total: r.total, cut: si.cutForNote };
+
     app.innerHTML = `
       <div class="exam-shell">
-        ${topbar("", "Relatório de pontuação")}
+        ${topbar("", t("resultsSubtitle"))}
         <div class="result-hero">
-          ${r.byTimeout ? '<p style="color:var(--warn);font-weight:600;margin-bottom:10px">⏱ Tempo esgotado — o exame foi encerrado automaticamente.</p>' : ""}
-          <div class="verdict ${r.pass ? "pass" : "fail"}">${r.pass ? "APROVADO" : "REPROVADO"}</div>
-          <div class="scaled">${r.score}</div>
-          <div class="scale-note">Pontuação em escala de 100 a 1000 · nota de corte: 700 · ${r.correct}/${r.total} acertos</div>
+          ${r.byTimeout ? `<p style="color:var(--warn);font-weight:600;margin-bottom:10px">${t("timeUpNotice")}</p>` : ""}
+          <div class="verdict ${si.pass ? "pass" : "fail"}">${si.pass ? t("verdictPass") : t("verdictFail")}</div>
+          <div class="scaled">${c.scoring === "percent" ? si.score + "%" : si.score}</div>
+          <div class="scale-note">${t(si.noteKey, noteVars)}</div>
           <div class="score-scale">
-            <div class="track"><div class="cut"></div><div class="marker" style="left:${pct}%"></div></div>
-            <div class="labels"><span>100</span><span>700 (corte)</span><span>1000</span></div>
+            <div class="track" style="background:linear-gradient(to right, #f5c8bd 0 ${si.cutPct}%, #c8e6c9 ${si.cutPct}% 100%)">
+              <div class="cut" style="left:${si.cutPct}%"></div>
+              <div class="marker" style="left:${si.pct}%"></div>
+            </div>
+            <div class="labels"><span>${si.minLabel}</span><span>${si.cutLabel} ${c.lang === "pt" ? "(corte)" : "(cutoff)"}</span><span>${si.maxLabel}</span></div>
           </div>
           <div style="margin-top:26px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-            ${wrongCount ? `<button class="btn btn-primary" data-action="queue-wrong">Adicionar ${wrongCount} erro(s) à fila de revisão</button>` : ""}
-            <button class="btn btn-light" data-action="start-exam">Novo simulado</button>
-            <button class="btn btn-light" data-action="home">Voltar ao início</button>
+            ${wrongCount ? `<button class="btn btn-primary" data-action="queue-wrong">${t("addWrongBtn", { n: wrongCount })}</button>` : ""}
+            <button class="btn btn-light" data-action="start-exam">${t("newExamBtn")}</button>
+            <button class="btn btn-light" data-action="home">${t("homeBtn")}</button>
           </div>
         </div>
         <div class="result-detail">
-          <div class="section-title">Desempenho por domínio</div>
+          <div class="section-title">${t("sectionDomainPerf")}</div>
           <table class="domain-table"><tbody>${domRows}</tbody></table>
-          <div class="section-title">Correção comentada</div>
+          <div class="section-title">${t("correctionTitle")}</div>
           ${items}
         </div>
       </div>`;
@@ -566,6 +611,7 @@
     const a = btn.dataset.action;
 
     if (a === "home") renderHome();
+    else if (a === "switch-cert") switchCert(btn.dataset.cert);
     else if (a === "start-study") startStudy(null);
     else if (a === "practice-domain") startStudy(+btn.dataset.domain);
     else if (a === "check") studyCheck();
@@ -591,23 +637,21 @@
     else if (a === "exam-finish") {
       const unanswered = exam.questions.filter((_, i) => !(exam.answers[i] && exam.answers[i].size)).length;
       confirmModal(
-        "Finalizar exame?",
-        unanswered
-          ? `Você ainda tem <strong>${unanswered}</strong> questão(ões) sem resposta. Depois de finalizar, não será possível voltar.`
-          : "Depois de finalizar, não será possível voltar às questões.",
-        "Finalizar exame",
+        t("modalFinishTitle"),
+        unanswered ? t("modalFinishBodyUnanswered", { n: unanswered }) : t("modalFinishBodyClean"),
+        t("modalConfirmFinish"),
         () => finishExam(false)
       );
     }
     else if (a === "queue-wrong") {
       const ids = JSON.parse(app.dataset.wrongIds || "[]");
       ids.forEach((id) => {
-        const c = SRS.getCard(state, id);
-        if (c.seen === 0) { c.seen = 1; c.wrong = 1; } // entra como aprendizado
-        c.reps = 0; c.interval = 0; c.due = Date.now();
+        const cd = SRS.getCard(state, id);
+        if (cd.seen === 0) { cd.seen = 1; cd.wrong = 1; }
+        cd.reps = 0; cd.interval = 0; cd.due = Date.now();
       });
       SRS.save(state);
-      btn.textContent = "✔ Adicionados à fila de revisão";
+      btn.textContent = t("addWrongDone");
       btn.disabled = true;
     }
     else if (a === "save-settings") {
@@ -617,9 +661,10 @@
       renderHome();
     }
     else if (a === "reset-progress") {
-      confirmModal("Zerar todo o progresso?", "Isso apaga o histórico de repetição espaçada e de simulados deste navegador. Não é possível desfazer.", "Zerar tudo", () => {
-        localStorage.removeItem("aif-c01-srs-v1");
-        state = SRS.load();
+      confirmModal(t("resetConfirmTitle"), t("resetConfirmBody"), t("resetConfirmBtn"), () => {
+        const key = cert().srsKey;
+        localStorage.removeItem(key);
+        state = SRS.load(key);
         renderHome();
       });
     }
@@ -629,7 +674,7 @@
     if (q.type === "multiple") {
       if (sel.has(origIdx)) sel.delete(origIdx);
       else if (sel.size < q.correct.length) sel.add(origIdx);
-      else { // limite atingido: substitui informando visualmente (mantém comportamento simples: ignora)
+      else {
         sel.delete(sel.values().next().value);
         sel.add(origIdx);
       }
