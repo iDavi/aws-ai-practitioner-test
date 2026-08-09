@@ -3,31 +3,39 @@
  * Estado persistido em localStorage.
  * ============================================================ */
 (function () {
-  const KEY = "aif-c01-srs-v1";
+  const DEFAULT_KEY = "aif-c01-srs-v1";
   const DAY = 24 * 60 * 60 * 1000;
 
   const defaultState = () => ({
     cards: {},            // id -> { ease, interval, reps, lapses, due, seen, correct, wrong }
     settings: { newPerSession: 15, sessionSize: 30 },
-    examHistory: [],      // { date, scaled, pass, correct, total, byDomain }
+    examHistory: [],      // { date, scaled|percent, pass, correct, total, byDomain }
     introduced: {}        // "YYYY-MM-DD" -> qtd de cartões novos introduzidos no dia
   });
 
-  function load() {
+  /* Cada certificação persiste em uma chave própria do localStorage.
+     A chave fica anexada ao objeto de estado como propriedade não
+     enumerável, então save(state) não precisa recebê-la de novo e o
+     JSON persistido continua limpo. */
+  function load(key) {
+    key = key || DEFAULT_KEY;
+    let state;
     try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return defaultState();
-      const s = JSON.parse(raw);
-      return Object.assign(defaultState(), s, {
+      const raw = localStorage.getItem(key);
+      const s = raw ? JSON.parse(raw) : {};
+      state = Object.assign(defaultState(), s, {
         settings: Object.assign(defaultState().settings, s.settings || {})
       });
     } catch (e) {
-      return defaultState();
+      state = defaultState();
     }
+    Object.defineProperty(state, "__key", { value: key, enumerable: false, writable: true, configurable: true });
+    return state;
   }
 
   function save(state) {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    const key = state.__key || DEFAULT_KEY;
+    localStorage.setItem(key, JSON.stringify(state));
   }
 
   function newCard() {

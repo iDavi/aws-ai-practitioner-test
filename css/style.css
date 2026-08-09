@@ -130,8 +130,14 @@ a { color: var(--aws-blue); }
 .grade-easy:hover { background: #f2fcf3; }
 
 /* ============ Tela inicial / dashboard ============ */
-.home-header { background: var(--aws-navy); color: #fff; padding: 34px 24px 30px; }
+.home-header { background: var(--aws-navy); color: #fff; padding: 22px 24px 30px; }
 .home-header .inner, .home-main { max-width: 1060px; margin: 0 auto; }
+.cert-switcher { display: inline-flex; gap: 4px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2);
+  border-radius: 6px; padding: 4px; margin-bottom: 18px; }
+.cert-tab { background: transparent; border: none; color: #d5dbdb; font-size: 13px; font-weight: 600;
+  padding: 7px 16px; border-radius: 4px; transition: background .12s, color .12s; }
+.cert-tab:hover { background: rgba(255,255,255,.08); color: #fff; }
+.cert-tab.active { background: var(--aws-orange); color: #16191f; }
 .home-header h1 { font-size: 24px; font-weight: 700; }
 .home-header h1 .smile { color: var(--aws-orange); }
 .home-header p { margin-top: 8px; color: #d5dbdb; font-size: 14px; max-width: 720px; line-height: 1.6; }
