@@ -1,8 +1,9 @@
 # Certification Practice Exams — Spaced Repetition
 
-Multi-certification exam simulator with **spaced repetition**, 100% static (plain HTML/CSS/JS) — ready for GitHub Pages. Currently covers two certifications, switchable from the home screen:
+Multi-certification exam simulator with **spaced repetition**, 100% static (plain HTML/CSS/JS) — ready for GitHub Pages. Currently covers three certifications, switchable from the home screen:
 
 - 🟠 **AWS Certified AI Practitioner (AIF-C01)** — UI and question bank in Portuguese.
+- 🟡 **AWS Certified Developer – Associate (DVA-C02)** — UI and question bank in English.
 - 🟣 **HashiCorp Certified: Terraform Associate (004)** — UI and question bank in English.
 
 Each certification keeps its own question bank, spaced-repetition progress, and exam history, stored independently in the browser (`localStorage`), and each mimics the visual style of its real testing platform.
@@ -21,6 +22,25 @@ Each certification keeps its own question bank, spaced-repetition progress, and 
 | 5 — Segurança, Conformidade e Governança | 14% | 22 |
 
 Practice exam: 65 questions, 90 minutes, scored on the real AWS 100–1000 scale (passing: 700).
+
+### AWS Certified Developer – Associate (DVA-C02)
+155 questions in English covering all 4 domains at their official exam weights:
+
+| Domain | Weight | Questions |
+|---|---|---|
+| 1 — Development with AWS Services | 32% | 48 |
+| 2 — Security | 26% | 39 |
+| 3 — Deployment | 24% | 37 |
+| 4 — Troubleshooting and Optimization | 18% | 31 |
+
+Practice exam: 65 questions, 130 minutes, scored on the real AWS 100–1000 scale (passing: 720).
+
+This bank is deliberately pitched **slightly above** real-exam difficulty, so the real thing feels easier:
+
+- Stems are scenario-based and usually turn on one specific behaviour (visibility timeout vs. retention, `Ref` vs. `Fn::GetAtt`, GSI vs. LSI, reserved vs. provisioned concurrency).
+- Distractors are plausible on purpose — commonly a true statement that does not answer the question, or the right service with the wrong feature.
+- Every explanation states *why* the correct answer is right, walks through *why each distractor fails*, and closes with a **"Rule to remember"** that generalizes beyond the individual question.
+- Roughly 10% are multiple-response ("Choose two"), matching the real exam's mix.
 
 ### HashiCorp Certified: Terraform Associate (004)
 119 questions in English covering all 8 objective domains from HashiCorp's current (004) exam guide:
@@ -72,7 +92,7 @@ Pre-built `.apkg` decks (one note per question, organized into per-domain subdec
 - `anki/AIF-C01-simulado.apkg`
 - `anki/Terraform-Associate-004-simulado.apkg`
 
-Import either one via Anki's **File → Import**.
+Import either one via Anki's **File → Import**. (A DVA-C02 deck has not been generated yet — the question bank lives in `js/data/dva/`.)
 
 ## Structure
 
@@ -83,8 +103,9 @@ js/certs.js                   # certification registry + i18n strings (pt/en)
 js/app.js                     # dashboard, study mode, exam mode, results
 js/srs.js                     # spaced-repetition engine (SM-2), per-cert storage key
 js/data/domainN.js            # AWS AIF-C01 question bank, by domain
+js/data/dva/domainN.js        # AWS DVA-C02 question bank, by domain
 js/data/terraform/domainN.js  # Terraform Associate 004 question bank, by domain
 anki/*.apkg                   # pre-built Anki decks
 ```
 
-> Unofficial study content created for exam preparation. AWS, AWS Certified AI Practitioner, HashiCorp, and Terraform Associate are trademarks of their respective owners.
+> Unofficial study content created for exam preparation. AWS, AWS Certified AI Practitioner, AWS Certified Developer – Associate, HashiCorp, and Terraform Associate are trademarks of their respective owners.

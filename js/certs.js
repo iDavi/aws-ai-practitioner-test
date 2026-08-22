@@ -13,6 +13,7 @@
     window.TF_DOMAIN1, window.TF_DOMAIN2, window.TF_DOMAIN3, window.TF_DOMAIN4,
     window.TF_DOMAIN5, window.TF_DOMAIN6, window.TF_DOMAIN7, window.TF_DOMAIN8
   );
+  const DVA_BANK = [].concat(window.DVA_DOMAIN1, window.DVA_DOMAIN2, window.DVA_DOMAIN3, window.DVA_DOMAIN4);
 
   const CERTS = {
     aif: {
@@ -28,11 +29,11 @@
         "na interface da plataforma de aplicação de exames.",
       bank: AIF_BANK,
       domains: {
-        1: { name: "Fundamentos de IA e ML", examCount: 13 },
-        2: { name: "Fundamentos de IA Generativa", examCount: 16 },
-        3: { name: "Aplicações de Modelos de Fundação", examCount: 18 },
-        4: { name: "Diretrizes para IA Responsável", examCount: 9 },
-        5: { name: "Segurança, Conformidade e Governança", examCount: 9 }
+        1: { name: "Fundamentos de IA e ML", examCount: 13, weight: 20 },
+        2: { name: "Fundamentos de IA Generativa", examCount: 16, weight: 24 },
+        3: { name: "Aplicações de Modelos de Fundação", examCount: 18, weight: 28 },
+        4: { name: "Diretrizes para IA Responsável", examCount: 9, weight: 14 },
+        5: { name: "Segurança, Conformidade e Governança", examCount: 9, weight: 14 }
       },
       examMinutes: 90,
       examQuestions: 65,
@@ -69,6 +70,32 @@
       passPercent: 70,
       officialWeights: false,
       srsKey: "tf-004-srs-v1"
+    },
+    dva: {
+      id: "dva",
+      lang: "en",
+      shortName: "AWS Developer Associate",
+      fullName: "AWS Certified Developer – Associate (DVA-C02)",
+      titleHtml: '<span class="smile">AWS</span> Certified Developer – Associate (DVA-C02)',
+      badgeText: "with spaced repetition",
+      heroText:
+        "A bank of {n} exam-style questions covering the 4 domains of the DVA-C02 exam guide at their official weights, " +
+        "pitched slightly above the real exam so the real thing feels easier. Every explanation teaches the underlying rule, " +
+        "not just the answer. Study with spaced repetition, then sit a full {examQuestions}-question, {examMinutes}-minute practice exam " +
+        "in an interface modeled on the real certification testing platform.",
+      bank: DVA_BANK,
+      domains: {
+        1: { name: "Development with AWS Services", examCount: 21, weight: 32 },
+        2: { name: "Security", examCount: 17, weight: 26 },
+        3: { name: "Deployment", examCount: 16, weight: 24 },
+        4: { name: "Troubleshooting and Optimization", examCount: 11, weight: 18 }
+      },
+      examMinutes: 130,
+      examQuestions: 65,
+      scoring: "scaled",
+      passScaled: 720,
+      officialWeights: true,
+      srsKey: "dva-c02-srs-v1"
     }
   };
 

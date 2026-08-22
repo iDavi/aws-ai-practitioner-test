@@ -129,7 +129,11 @@
       });
       const acc = answered ? Math.round((100 * correct) / answered) : null;
       const cover = Math.round((100 * seen) / qs.length);
-      const pct = Math.round((100 * c.domains[d].examCount) / c.examQuestions);
+      /* Quando a certificação publica os pesos oficiais, exibe o peso
+         declarado; caso contrário, estima a partir da amostragem. */
+      const pct = c.domains[d].weight != null
+        ? c.domains[d].weight
+        : Math.round((100 * c.domains[d].examCount) / c.examQuestions);
       const meta = c.officialWeights
         ? t("domainMetaOfficial", { pct, bankCount: qs.length, due })
         : t("domainMetaEstimated", { pct, examCount: c.domains[d].examCount, examQuestions: c.examQuestions, bankCount: qs.length, due });
